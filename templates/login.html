@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Corp — Employee Self-Service Portal</title>
+    <link rel="stylesheet" href="/static/portal.css">
+</head>
+<body>
+    <div class="container">
+        <div class="portal-box">
+            <div class="logo">NEXUS CORP</div>
+            <p class="subtitle">Employee Self-Service Portal</p>
+            <p class="notice">⚠️ Authorised users only. All activity is monitored and logged.</p>
+
+            <form method="POST" action="/login" autocomplete="off">
+                <div class="field-group">
+                    <label for="username">Employee ID / Username</label>
+                    <input type="text" id="username" name="username"
+                           placeholder="e.g. EMP00123 or john.doe"
+                           required autofocus>
+                </div>
+                <div class="field-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password"
+                           placeholder="Enter your password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Sign In</button>
+            </form>
+
+            <div class="links">
+                <a href="/forgot-password">Forgot password?</a>
+                &nbsp;|&nbsp;
+                <a href="/help">IT Help Desk</a>
+            </div>
+        </div>
+
+        <!-- Fake links to attract attackers -->
+        <div class="extra-links">
+            <a href="/admin">Admin Portal</a> &nbsp;|&nbsp;
+            <a href="/search">Employee Directory</a>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2026 Nexus Corporation Sdn Bhd &nbsp;|&nbsp; IT Department &nbsp;|&nbsp;
+        <a href="/help">Help Desk</a> &nbsp;|&nbsp;
+        Powered by NexusHR v3.2.1
+    </footer>
+</body>
+</html>

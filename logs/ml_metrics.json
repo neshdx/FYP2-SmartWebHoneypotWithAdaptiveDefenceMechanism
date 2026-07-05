@@ -1,0 +1,37 @@
+{
+  "accuracy": 0.9613670133729569,
+  "n_samples": 3364,
+  "n_features": 12,
+  "n_trees": 100,
+  "test_size": 0.2,
+  "classes": [
+    "BRUTE_FORCE",
+    "DIRECTORY_TRAVERSAL",
+    "NORMAL",
+    "SCANNER",
+    "SQL_INJECTION",
+    "XSS"
+  ],
+  "class_counts": {
+    "BRUTE_FORCE": 341,
+    "DIRECTORY_TRAVERSAL": 407,
+    "NORMAL": 1645,
+    "SCANNER": 100,
+    "SQL_INJECTION": 342,
+    "XSS": 529
+  },
+  "feature_importance": {
+    "payload_len": 0.10355052900941122,
+    "has_sqli_keywords": 0.07866601963313885,
+    "has_xss_keywords": 0.12208706101789303,
+    "has_traversal": 0.08666687250258956,
+    "has_scanner_ua": 0.07248958370928156,
+    "is_post": 0.08165667924032405,
+    "keyword_count": 0.09024853643877367,
+    "payload_entropy": 0.09866888635295316,
+    "special_char_count": 0.09240087771644083,
+    "matched_rule_count": 0.12686421300454415,
+    "path_depth": 0.014668982837123918,
+    "has_query_string": 0.03203175853752619
+  }
+}

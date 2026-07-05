@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Honeypot Dashboard — FYP01-CS-2530-0463</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+
+<aside class="sidebar">
+    <div class="sidebar-logo">
+        <span class="logo-icon">🍯</span>
+        <div>
+            <strong>SmartHoneypot</strong>
+            <small>FYP01-CS-2530-0463</small>
+        </div>
+    </div>
+    <nav>
+        <a href="#overview" class="nav-item active">Overview</a>
+        <a href="#logs" class="nav-item">Attack Logs</a>
+        <a href="#stats" class="nav-item">Statistics</a>
+    </nav>
+    <div class="sidebar-info">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Loading...</span>
+    </div>
+</aside>
+
+<main class="main-content">
+
+    <!-- HEADER -->
+    <header class="topbar">
+        <div>
+            <h1>Security Monitoring Dashboard</h1>
+            <small>Smart Web Honeypot with Adaptive Defence Mechanism</small>
+        </div>
+        <div class="topbar-right">
+            <span class="refresh-badge" id="last-refresh">--</span>
+            <button class="btn-clear" onclick="clearLogs()">🗑 Clear Logs</button>
+            <button class="btn-logout" onclick="logout()">🚪 Logout</button>
+        </div>
+    </header>
+
+    <!-- STAT CARDS -->
+    <section id="overview" class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Requests</div>
+            <div class="stat-value" id="total-count">0</div>
+        </div>
+        <div class="stat-card threat-high">
+            <div class="stat-label">HIGH Threats</div>
+            <div class="stat-value" id="high-count">0</div>
+        </div>
+        <div class="stat-card threat-medium">
+            <div class="stat-label">MEDIUM Threats</div>
+            <div class="stat-value" id="medium-count">0</div>
+        </div>
+        <div class="stat-card threat-low">
+            <div class="stat-label">LOW Threats</div>
+            <div class="stat-value" id="low-count">0</div>
+        </div>
+        <div class="stat-card ml-card">
+            <div class="stat-label">ML Avg Confidence</div>
+            <div class="stat-value" id="ml-confidence">--</div>
+        </div>
+    </section>
+
+    <!-- ATTACK TYPE BREAKDOWN -->
+    <section id="stats" class="section-row">
+        <div class="panel">
+            <h2>Attack Type Breakdown</h2>
+            <div id="attack-breakdown" class="breakdown-list"></div>
+        </div>
+        <div class="panel">
+            <h2>Top Attacking IPs</h2>
+            <div id="top-ips" class="breakdown-list"></div>
+        </div>
+    </section>
+
+    <!-- ATTACK LOG TABLE -->
+    <section id="logs" class="panel full-width">
+        <div class="panel-header">
+            <h2>Live Attack Log</h2>
+            <div class="filter-group">
+                <select id="filter-threat" onchange="filterLogs()">
+                    <option value="">All Levels</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="LOW">LOW</option>
+                    <option value="NORMAL">NORMAL</option>
+                </select>
+                <select id="filter-attack" onchange="filterLogs()">
+                    <option value="">All Attacks</option>
+                    <option value="SQL_INJECTION">SQL Injection</option>
+                    <option value="XSS">XSS</option>
+                    <option value="BRUTE_FORCE">Brute Force</option>
+                    <option value="DIRECTORY_TRAVERSAL">Dir Traversal</option>
+                    <option value="SCANNER">Scanner</option>
+                </select>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table id="log-table">
+                 <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>IP</th>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Threat</th>
+                        <th>Attack Type</th>
+                        <th>CVSS Score</th>
+                        <th>ML Confidence</th>
+                        <th>Response</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="log-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+</main>
+
+<!-- LOG DETAIL MODAL -->
+<div id="modal" class="modal hidden">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <h3>Log Entry Detail</h3>
+        <pre id="modal-content"></pre>
+    </div>
+</div>
+
+<script>
+    let allLogs = [];
+    let refreshInterval = null;
+
+    async function fetchData() {
+        try {
+            const res = await fetch('/api/logs');
+            const data = await res.json();
+            
+            allLogs = data.logs || [];
+            updateStats(data.stats || {});
+            renderLogs(allLogs);
+            updateStatus(true);
+            
+        } catch (e) {
+            console.error('Fetch error:', e);
+            updateStatus(false);
+        }
+        document.getElementById('last-refresh').textContent =
+            'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
+    function updateStats(stats) {
+        document.getElementById('total-count').textContent  = stats.total || 0;
+        const tc = stats.threat_counts || {};
+        document.getElementById('high-count').textContent   = tc.HIGH   || 0;
+        document.getElementById('medium-count').textContent = tc.MEDIUM || 0;
+        document.getElementById('low-count').textContent    = tc.LOW    || 0;
+
+        // ML Confidence
+        const mlStats = stats.ml_stats || {};
+        const avgConf = (mlStats.avg_confidence || 0) * 100;
+        document.getElementById('ml-confidence').textContent = avgConf > 0 ? avgConf.toFixed(1) + '%' : '--';
+
+        // Attack breakdown
+        const ac = stats.attack_counts || {};
+        const breakdownEl = document.getElementById('attack-breakdown');
+        breakdownEl.innerHTML = Object.entries(ac)
+            .sort((a,b) => b[1]-a[1])
+            .map(([type, count]) => `
+                <div class="breakdown-item">
+                    <span class="attack-badge attack-${type}">${type}</span>
+                    <span class="breakdown-count">${count}</span>
+                    <div class="breakdown-bar">
+                        <div class="breakdown-fill" style="width:${Math.min(100, count * 10)}%"></div>
+                    </div>
+                </div>
+            `).join('') || '<p class="empty">No attacks detected yet.</p>';
+
+        // Top IPs
+        const ips = stats.top_ips || [];
+        document.getElementById('top-ips').innerHTML = ips
+            .map(item => {
+                // Handle both dict {ip, count} and tuple [ip, count] formats
+                const ip = typeof item === 'object' && item.ip ? item.ip : (Array.isArray(item) ? item[0] : '?');
+                const count = typeof item === 'object' && item.count ? item.count : (Array.isArray(item) ? item[1] : 0);
+                return `
+                <div class="breakdown-item">
+                    <span class="ip-label">${ip}</span>
+                    <span class="breakdown-count">${count} req</span>
+                </div>
+            `;
+            }).join('') || '<p class="empty">No data yet.</p>';
+    }
+
+    function renderLogs(logs) {
+        const tbody = document.getElementById('log-tbody');
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="9">No logs found</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = logs.map((log, idx) => {
+            const timestamp = log.timestamp ? log.timestamp.replace('T', ' ').substring(0, 19) : '--';
+            const ip = log.ip || '--';
+            const method = log.method || '--';
+            const path = (log.path || '').substring(0, 30);
+            const threat = log.threat_level || '--';
+            const attackType = log.attack_type || '--';
+            const cvssScore = (log.cvss_score !== undefined && log.cvss_score !== null) ? log.cvss_score.toFixed(1) : '--';
+            const cvssLevel = log.cvss_severity || 'N/A';
+            // ml_confidence may not exist in old logs; show as 'N/A' if missing
+            const conf = (log.ml_confidence !== undefined && log.ml_confidence !== null) ? (log.ml_confidence * 100).toFixed(1) : 'N/A';
+            const response = (log.adaptive_response || 'N/A').substring(0, 25);
+              
+            return `<tr onclick="showModal(${idx})">
+                <td>${timestamp}</td>
+                <td><code>${ip}</code></td>
+                <td>${method}</td>
+                <td>${path}</td>
+                <td><span class="threat-badge threat-${threat}">${threat}</span></td>
+                <td><span class="attack-badge attack-${attackType}">${attackType}</span></td>
+                <td><span class="cvss-badge cvss-${cvssLevel.toLowerCase()}">${cvssScore} (${cvssLevel})</span></td>
+                <td>${conf}%</td>
+                <td>${response}</td>
+                <td><button onclick="event.stopPropagation();showModal(${idx})" class="btn-detail">View</button></td>
+            </tr>`;
+        }).join('');
+    }
+
+    function filterLogs() {
+        // Placeholder for filter UI (no-op for now)
+    }
+
+    function showModal(idx) {
+        const log = allLogs[idx];
+        document.getElementById('modal-content').textContent = JSON.stringify(log, null, 2);
+        document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+    }
+
+    async function clearLogs() {
+        if (!confirm('Clear all logs?')) return;
+        await fetch('/api/logs/clear', {method:'POST'});
+        currentFilter = { threat: '', attack: '' };
+        document.getElementById('filter-threat').value = '';
+        document.getElementById('filter-attack').value = '';
+        fetchData();
+    }
+
+    async function logout() {
+        await fetch('/dashboard/logout');
+        window.location.href = '/dashboard/login';
+    }
+
+    function updateStatus(ok) {
+        const dot  = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        dot.className  = ok ? 'status-dot online' : 'status-dot offline';
+        text.textContent = ok ? 'Honeypot Active' : 'Connection Error';
+    }
+
+    function escHtml(str) {
+        return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function getConfidenceLevel(conf) {
+        if (!conf || conf < 0.5) return 'low';
+        if (conf < 0.75) return 'med';
+        return 'high';
+    }
+
+    // Initial data fetch
+    fetchData();
+      
+    // Auto-refresh every 5 seconds (maintains current filter)
+    refreshInterval = setInterval(fetchData, 5000);
+     
+    // Prevent back button from bypassing login
+    history.pushState(null, null, location.href);
+    window.addEventListener('popstate', function() {
+        history.pushState(null, null, location.href);
+    });
+</script>
+</body>
+</html>

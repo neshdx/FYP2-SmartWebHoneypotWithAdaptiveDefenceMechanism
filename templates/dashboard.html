@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Honeypot Dashboard — FYP01-CS-2530-0463</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+
+<aside class="sidebar">
+    <div class="sidebar-logo">
+        <span class="logo-icon">🍯</span>
+        <div>
+            <strong>SmartHoneypot</strong>
+            <small>FYP01-CS-2530-0463</small>
+        </div>
+    </div>
+    <nav>
+        <a href="#overview" class="nav-item active">Overview</a>
+        <a href="#logs" class="nav-item">Attack Logs</a>
+        <a href="#stats" class="nav-item">Statistics</a>
+    </nav>
+    <div class="sidebar-info">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Loading...</span>
+    </div>
+</aside>
+
+<main class="main-content">
+
+    <!-- HEADER -->
+    <header class="topbar">
+        <div>
+            <h1>Security Monitoring Dashboard</h1>
+            <small>Smart Web Honeypot with Adaptive Defence Mechanism</small>
+        </div>
+        <div class="topbar-right">
+            <span class="refresh-badge" id="last-refresh">--</span>
+            <button class="btn-clear" onclick="clearLogs()">🗑 Clear Logs</button>
+            <button class="btn-logout" onclick="logout()">🚪 Logout</button>
+        </div>
+    </header>
+
+    <!-- STAT CARDS -->
+    <section id="overview" class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Requests</div>
+            <div class="stat-value" id="total-count">0</div>
+        </div>
+        <div class="stat-card threat-high">
+            <div class="stat-label">HIGH Threats</div>
+            <div class="stat-value" id="high-count">0</div>
+        </div>
+        <div class="stat-card threat-medium">
+            <div class="stat-label">MEDIUM Threats</div>
+            <div class="stat-value" id="medium-count">0</div>
+        </div>
+        <div class="stat-card threat-low">
+            <div class="stat-label">LOW Threats</div>
+            <div class="stat-value" id="low-count">0</div>
+        </div>
+        <div class="stat-card ml-card">
+            <div class="stat-label">ML Avg Confidence</div>
+            <div class="stat-value" id="ml-confidence">--</div>
+        </div>
+    </section>
+
+    <!-- ATTACK TYPE BREAKDOWN -->
+    <section id="stats" class="section-row">
+        <div class="panel">
+            <h2>Attack Type Breakdown</h2>
+            <div id="attack-breakdown" class="breakdown-list"></div>
+        </div>
+        <div class="panel">
+            <h2>Top Attacking IPs</h2>
+            <div id="top-ips" class="breakdown-list"></div>
+        </div>
+    </section>
+
+    <!-- ATTACK LOG TABLE -->
+    <section id="logs" class="panel full-width">
+        <div class="panel-header">
+            <h2>Live Attack Log</h2>
+            <div class="filter-group">
+                <select id="filter-threat" onchange="filterLogs()">
+                    <option value="">All Levels</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="LOW">LOW</option>
+                    <option value="NORMAL">NORMAL</option>
+                </select>
+                <select id="filter-attack" onchange="filterLogs()">
+                    <option value="">All Attacks</option>
+                    <option value="SQL_INJECTION">SQL Injection</option>
+                    <option value="XSS">XSS</option>
+                    <option value="BRUTE_FORCE">Brute Force</option>
+                    <option value="DIRECTORY_TRAVERSAL">Dir Traversal</option>
+                    <option value="SCANNER">Scanner</option>
+                    <option value="NONE">Normal</option>
+                </select>
+                <span id="filter-count" style="font-size:12px;color:#888;align-self:center;margin-left:4px;"></span>
+                <button class="btn-export" onclick="exportPDF()" title="Export visible logs to PDF">⬇ Export PDF</button>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table id="log-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>IP</th>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Threat</th>
+                        <th>Attack Type</th>
+                        <th>CVSS Score</th>
+                        <th>ML Confidence</th>
+                        <th>Response</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="log-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+
+</main>
+
+<!-- LOG DETAIL MODAL -->
+<div id="modal" class="modal hidden">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <h3>Log Entry Detail</h3>
+        <pre id="modal-content"></pre>
+    </div>
+</div>
+
+<script>
+    let allLogs = [];
+    let filteredLogs = [];
+    let refreshInterval = null;
+
+    // ── HTML escaping ────────────────────────────────────────────────────────
+    // All user-supplied fields (path, payload, UA, response) must pass through
+    // this before being inserted into innerHTML. Without it, stored XSS payloads
+    // in the log file render into the dashboard DOM and the browser tries to
+    // navigate/execute them, creating a self-feeding detection loop.
+    function escHtml(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;');
+    }
+
+    async function fetchData() {
+        try {
+            const res = await fetch('/api/logs');
+            const data = await res.json();
+            allLogs = data.logs || [];
+            updateStats(data.stats || {});
+            // Re-apply active filter on every refresh so analyst
+            // selection is preserved across auto-refresh cycles
+            filterLogs();
+            updateStatus(true);
+        } catch (e) {
+            console.error('Fetch error:', e);
+            updateStatus(false);
+        }
+        document.getElementById('last-refresh').textContent =
+            'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
+    function updateStats(stats) {
+        document.getElementById('total-count').textContent  = stats.total || 0;
+        const tc = stats.threat_counts || {};
+        document.getElementById('high-count').textContent   = tc.HIGH   || 0;
+        document.getElementById('medium-count').textContent = tc.MEDIUM || 0;
+        document.getElementById('low-count').textContent    = tc.LOW    || 0;
+
+        const mlStats = stats.ml_stats || {};
+        const avgConf = (mlStats.avg_confidence || 0) * 100;
+        document.getElementById('ml-confidence').textContent =
+            avgConf > 0 ? avgConf.toFixed(1) + '%' : '--';
+
+        const ac = stats.attack_counts || {};
+        const breakdownEl = document.getElementById('attack-breakdown');
+        breakdownEl.innerHTML = Object.entries(ac)
+            .sort((a, b) => b[1] - a[1])
+            .map(([type, count]) => `
+                <div class="breakdown-item">
+                    <span class="attack-badge attack-${escHtml(type)}">${escHtml(type)}</span>
+                    <span class="breakdown-count">${count}</span>
+                    <div class="breakdown-bar">
+                        <div class="breakdown-fill" style="width:${Math.min(100, count * 10)}%"></div>
+                    </div>
+                </div>
+            `).join('') || '<p class="empty">No attacks detected yet.</p>';
+
+        const ips = stats.top_ips || [];
+        document.getElementById('top-ips').innerHTML = ips
+            .map(item => {
+                const ip    = typeof item === 'object' && item.ip    ? item.ip    : (Array.isArray(item) ? item[0] : '?');
+                const count = typeof item === 'object' && item.count ? item.count : (Array.isArray(item) ? item[1] : 0);
+                return `
+                <div class="breakdown-item">
+                    <span class="ip-label">${escHtml(ip)}</span>
+                    <span class="breakdown-count">${count} req</span>
+                </div>`;
+            }).join('') || '<p class="empty">No data yet.</p>';
+    }
+
+    function renderLogs(logs) {
+        const tbody = document.getElementById('log-tbody');
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:#888">No logs match the current filter.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = logs.map((log, idx) => {
+            // All user-supplied fields are HTML-escaped before insertion.
+            // This prevents stored XSS payloads in the log file from being
+            // interpreted as live HTML/JS by the browser when the dashboard
+            // renders the attack log table.
+            const timestamp  = escHtml(log.timestamp ? log.timestamp.replace('T', ' ').substring(0, 19) : '--');
+            const ip         = escHtml(log.ip || '--');
+            const method     = escHtml(log.method || '--');
+            const path       = escHtml((log.path || '').substring(0, 30));
+            const threat     = escHtml(log.threat_level || '--');
+            const attackType = escHtml(log.attack_type || '--');
+            const cvssScore  = (log.cvss_score !== undefined && log.cvss_score !== null)
+                                   ? log.cvss_score.toFixed(1) : '--';
+            const cvssLevel  = escHtml(log.cvss_severity || 'N/A');
+            const conf       = (log.ml_confidence !== undefined && log.ml_confidence !== null)
+                                   ? (log.ml_confidence * 100).toFixed(1) : 'N/A';
+            const response   = escHtml((log.adaptive_response || 'N/A').substring(0, 25));
+
+            return `<tr onclick="showModal(${idx})">
+                <td>${timestamp}</td>
+                <td><code>${ip}</code></td>
+                <td>${method}</td>
+                <td>${path}</td>
+                <td><span class="threat-badge threat-${threat}">${threat}</span></td>
+                <td><span class="attack-badge attack-${attackType}">${attackType}</span></td>
+                <td><span class="cvss-badge cvss-${cvssLevel.toLowerCase()}">${cvssScore} (${cvssLevel})</span></td>
+                <td>${conf}%</td>
+                <td>${response}</td>
+                <td><button onclick="event.stopPropagation();showModal(${idx})" class="btn-detail">View</button></td>
+            </tr>`;
+        }).join('');
+    }
+
+    function filterLogs() {
+        const threatVal = document.getElementById('filter-threat').value;
+        const attackVal = document.getElementById('filter-attack').value;
+
+        filteredLogs = allLogs.filter(log => {
+            const threatMatch = !threatVal || (log.threat_level || '') === threatVal;
+            const attackMatch = !attackVal || (log.attack_type  || '') === attackVal;
+            return threatMatch && attackMatch;
+        });
+
+        const total   = allLogs.length;
+        const shown   = filteredLogs.length;
+        const countEl = document.getElementById('filter-count');
+        if (countEl) {
+            countEl.textContent = (threatVal || attackVal)
+                ? `Showing ${shown} of ${total}`
+                : `${total} entries`;
+        }
+
+        renderLogs(filteredLogs);
+    }
+
+    function showModal(idx) {
+        // idx indexes into filteredLogs (the currently rendered set)
+        const log = filteredLogs.length > 0 ? filteredLogs[idx] : allLogs[idx];
+        // textContent is used here (not innerHTML) so the raw JSON is
+        // displayed as plain text and cannot be interpreted as HTML
+        document.getElementById('modal-content').textContent = JSON.stringify(log, null, 2);
+        document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+    }
+
+    async function clearLogs() {
+        if (!confirm('Clear all logs? This cannot be undone.')) return;
+        await fetch('/api/logs/clear', { method: 'POST' });
+        document.getElementById('filter-threat').value = '';
+        document.getElementById('filter-attack').value = '';
+        fetchData();
+    }
+
+    async function logout() {
+        await fetch('/dashboard/logout');
+        window.location.href = '/dashboard/login';
+    }
+
+    function updateStatus(ok) {
+        const dot  = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        dot.className    = ok ? 'status-dot online' : 'status-dot offline';
+        text.textContent = ok ? 'Honeypot Active'   : 'Connection Error';
+    }
+
+    function exportPDF() {
+        const logsToExport = filteredLogs.length > 0 ? filteredLogs : allLogs;
+        if (!logsToExport.length) { alert('No logs to export.'); return; }
+
+        const threatFilter = document.getElementById('filter-threat').value;
+        const attackFilter = document.getElementById('filter-attack').value;
+        const filterDesc   = [
+            threatFilter ? 'Threat: ' + threatFilter : '',
+            attackFilter ? 'Attack: ' + attackFilter : ''
+        ].filter(Boolean).join(' | ') || 'All Logs';
+
+        // PDF export uses escHtml on all user data to prevent XSS in the
+        // print window (which is a separate browser context)
+        const rows = logsToExport.map(log => {
+            const ts       = escHtml((log.timestamp || '').replace('T', ' ').substring(0, 19));
+            const ip       = escHtml(log.ip || '--');
+            const method   = escHtml(log.method || '--');
+            const path     = escHtml(log.path || '--');
+            const threat   = escHtml(log.threat_level || '--');
+            const attack   = escHtml(log.attack_type || '--');
+            const cvss     = log.cvss_score != null
+                ? log.cvss_score.toFixed(1) + ' (' + escHtml(log.cvss_severity || '') + ')' : '--';
+            const conf     = log.ml_confidence != null
+                ? (log.ml_confidence * 100).toFixed(1) + '%' : 'N/A';
+            const response = escHtml(log.adaptive_response || '--');
+            const color    = threat === 'HIGH'   ? '#c0392b'
+                           : threat === 'MEDIUM' ? '#d35400'
+                           : threat === 'LOW'    ? '#f39c12' : '#7f8c8d';
+            return `<tr>
+                <td>${ts}</td><td>${ip}</td><td>${method}</td><td>${path}</td>
+                <td style="color:${color};font-weight:bold">${threat}</td>
+                <td>${attack}</td><td>${cvss}</td><td>${conf}</td><td>${response}</td>
+            </tr>`;
+        }).join('');
+
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`<!DOCTYPE html><html><head>
+            <title>SmartHoneypot Attack Log Export</title>
+            <style>
+                body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; color: #222; }
+                h1   { font-size: 16px; margin-bottom: 4px; color: #1E3A5F; }
+                .meta { font-size: 10px; color: #666; margin-bottom: 12px; }
+                table { border-collapse: collapse; width: 100%; }
+                th { background:#1E3A5F; color:#fff; padding:6px 8px; text-align:left; font-size:10px; }
+                td { padding:5px 8px; border-bottom:1px solid #e0e0e0; vertical-align:top; word-break:break-all; }
+                tr:nth-child(even) { background:#f8f9fa; }
+                .footer { margin-top:16px; font-size:9px; color:#aaa; text-align:center; }
+                @media print {
+                    .no-print { display:none; }
+                    @page { margin:15mm; size:A4 landscape; }
+                }
+            </style>
+        </head><body>
+            <h1>SmartHoneypot — Attack Log Export</h1>
+            <div class="meta">
+                FYP02-CS-2610-0463 &nbsp;|&nbsp;
+                Filter: ${escHtml(filterDesc)} &nbsp;|&nbsp;
+                Exported: ${new Date().toLocaleString()} &nbsp;|&nbsp;
+                ${logsToExport.length} entries
+            </div>
+            <button class="no-print"
+                onclick="window.print()"
+                style="margin-bottom:12px;padding:6px 16px;background:#1E3A5F;color:white;
+                       border:none;border-radius:4px;cursor:pointer;font-size:12px">
+                🖨 Print / Save as PDF
+            </button>
+            <table>
+                <thead><tr>
+                    <th>Timestamp</th><th>IP</th><th>Method</th><th>Path</th>
+                    <th>Threat</th><th>Attack Type</th><th>CVSS</th><th>ML Conf.</th><th>Response</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            <div class="footer">
+                Smart Web Honeypot with Adaptive Defence Mechanism —
+                Dinesh Waren A/L Rajasingam — MMU FCI
+            </div>
+        </body></html>`);
+        printWindow.document.close();
+        setTimeout(() => printWindow.print(), 400);
+    }
+
+    // Initial load + auto-refresh every 5 seconds
+    fetchData();
+    refreshInterval = setInterval(fetchData, 5000);
+
+    // Prevent back-button bypass of dashboard login
+    history.pushState(null, null, location.href);
+    window.addEventListener('popstate', () => {
+        history.pushState(null, null, location.href);
+    });
+</script>
+</body>
+</html>

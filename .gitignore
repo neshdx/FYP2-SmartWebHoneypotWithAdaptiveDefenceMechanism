@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+
+
+# VS Code settings
+.vscode/
+
+
+# Environment files
+.env
+venv/
+.venv/
+
+
+
+
+# OS files
+Thumbs.db
+.DS_Store
